@@ -907,7 +907,4 @@ with tab_file:
             except Exception as exc:
                 prog.empty()
                 st.error(f"❌ Unexpected error: {exc}")
-
-<userPrompt>
-Provide the fully rewritten file, incorporating the suggested code change. You must produce the complete file.
-</userPrompt>
+    
