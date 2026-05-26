@@ -271,8 +271,26 @@ _MIC_HTML = r"""
   <div id="tbox"><span class="ph">🎤 Press "بدء التسجيل" to start…</span></div>
 
 <script>
-// ── Configuration ────────────────────────────────────────
-const WS_URL      = '[[WS_URL]]';  // injected by Python at render time
+// ── Configuration ───────────────────────────────────────
+// `[[WS_URL]]` may contain a full HTTP(s) URL (from Streamlit secrets)
+// or be empty; derive a safe WS(S) URL at runtime and prefer wss for https pages.
+const WS_URL_RAW  = '[[WS_URL]]';  // injected by Python at render time
+let WS_URL = WS_URL_RAW && WS_URL_RAW !== '[[WS_URL]]' ? WS_URL_RAW : '';
+// Normalize or derive the websocket URL
+if (WS_URL) {
+  if (WS_URL.startsWith('http://')) {
+    WS_URL = WS_URL.replace('http://', 'ws://');
+  } else if (WS_URL.startsWith('https://')) {
+    WS_URL = WS_URL.replace('https://', 'wss://');
+  }
+  if (!WS_URL.endsWith('/ws/stream')) {
+    WS_URL = WS_URL.replace(/\/+$/, '') + '/ws/stream';
+  }
+} else {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  WS_URL = proto + '//' + window.location.host + '/ws/stream';
+}
+console.log('[STT] Using WS URL:', WS_URL);
 const SAMPLE_RATE = 16000;
 const BUFFER_SIZE = 4096;          // ~256 ms per chunk @ 16 kHz
 
@@ -388,14 +406,37 @@ async function startRec() {
   setStatus('⟳ Connecting…', 'connecting');
 
   try {
-    // 1. Open WebSocket to backend
+    // 1. Open WebSocket to backend with a single retry/fallback (ws <-> wss)
     ws = new WebSocket(WS_URL);
     ws.binaryType = 'arraybuffer';
 
     await new Promise((res, rej) => {
       const t = setTimeout(() => rej(new Error('Connection timeout (10s)')), 10000);
+      let triedFallback = false;
+
+      const fail = (err) => {
+        clearTimeout(t);
+        if (!triedFallback) {
+          triedFallback = true;
+          console.warn('[STT] WS connect failed, attempting protocol fallback');
+          try {
+            if (WS_URL.startsWith('ws://')) WS_URL = WS_URL.replace('ws://', 'wss://');
+            else if (WS_URL.startsWith('wss://')) WS_URL = WS_URL.replace('wss://', 'ws://');
+            console.log('[STT] Retrying with:', WS_URL);
+            ws = new WebSocket(WS_URL);
+            ws.binaryType = 'arraybuffer';
+            ws.onopen = () => { clearTimeout(t); res(); };
+            ws.onerror = () => fail(new Error('WebSocket retry failed'));
+          } catch (e) {
+            rej(new Error('WebSocket retry exception: ' + e.message));
+          }
+        } else {
+          rej(err || new Error('WebSocket failed'));
+        }
+      };
+
       ws.onopen  = () => { clearTimeout(t); res(); };
-      ws.onerror = () => { clearTimeout(t); rej(new Error('WebSocket failed')); };
+      ws.onerror = (e) => fail(new Error('WebSocket failed'));
     });
 
     // 2. Request microphone access
@@ -447,11 +488,21 @@ async function startRec() {
           setStatus('❌ ' + msg.message, 'error');
         }
         // 'keepalive' messages are silently ignored
-      } catch (_) {}
+      } catch (e) {
+        console.error('[STT] Failed to parse WS message:', e, evt.data);
+      }
     };
 
-    ws.onerror = () => setStatus('❌ Connection error', 'error');
-    ws.onclose = () => { if (recording) stopRec(); };
+    ws.onerror = (e) => {
+      console.error('[STT] WebSocket error:', e);
+      setStatus('❌ Connection error', 'error');
+    };
+
+    ws.onclose = (ev) => {
+      console.warn('[STT] WebSocket closed', ev.code, ev.reason);
+      if (recording) stopRec();
+      setStatus('● Stopped', 'idle');
+    };
 
     recording = true;
     document.getElementById('startBtn').disabled = true;
