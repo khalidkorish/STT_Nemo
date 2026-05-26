@@ -290,6 +290,12 @@ if (WS_URL) {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   WS_URL = proto + '//' + window.location.host + '/ws/stream';
 }
+
+// Enforce security: don't attempt an insecure ws:// connection from an https page.
+if (window && window.location && window.location.protocol === 'https:' && WS_URL.startsWith('ws://')) {
+  WS_URL = WS_URL.replace('ws://', 'wss://');
+}
+
 console.log('[STT] Using WS URL:', WS_URL);
 const SAMPLE_RATE = 16000;
 const BUFFER_SIZE = 4096;          // ~256 ms per chunk @ 16 kHz
@@ -420,13 +426,26 @@ async function startRec() {
           triedFallback = true;
           console.warn('[STT] WS connect failed, attempting protocol fallback');
           try {
-            if (WS_URL.startsWith('ws://')) WS_URL = WS_URL.replace('ws://', 'wss://');
-            else if (WS_URL.startsWith('wss://')) WS_URL = WS_URL.replace('wss://', 'ws://');
-            console.log('[STT] Retrying with:', WS_URL);
-            ws = new WebSocket(WS_URL);
-            ws.binaryType = 'arraybuffer';
-            ws.onopen = () => { clearTimeout(t); res(); };
-            ws.onerror = () => fail(new Error('WebSocket retry failed'));
+            // Compute a fallback candidate, but DO NOT attempt insecure ws:// from https pages.
+            let candidate = null;
+            if (WS_URL.startsWith('ws://')) candidate = WS_URL.replace('ws://', 'wss://');
+            else if (WS_URL.startsWith('wss://')) candidate = WS_URL.replace('wss://', 'ws://');
+
+            if (candidate) {
+              if (window.location.protocol === 'https:' && candidate.startsWith('ws://')) {
+                // Browser will block this — abort fallback.
+                console.warn('[STT] Not retrying with insecure ws:// on HTTPS page');
+                return rej(err || new Error('WebSocket failed (secure page, insecure fallback blocked)'));
+              }
+              console.log('[STT] Retrying with:', candidate);
+              WS_URL = candidate;
+              ws = new WebSocket(WS_URL);
+              ws.binaryType = 'arraybuffer';
+              ws.onopen = () => { clearTimeout(t); res(); };
+              ws.onerror = () => fail(new Error('WebSocket retry failed'));
+            } else {
+              rej(err || new Error('WebSocket failed'));
+            }
           } catch (e) {
             rej(new Error('WebSocket retry exception: ' + e.message));
           }
