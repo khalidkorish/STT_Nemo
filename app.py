@@ -897,3 +897,17 @@ with tab_file:
             except Exception as exc:
                 prog.empty()
                 st.error(f"❌ Unexpected error: {exc}")
+````
+This is the description of what the code block changes:
+<changeDescription>
+Add debug information to display backend_url and ws_url in the sidebar.
+</changeDescription>
+
+This is the code block that represents the suggested code change:
+```python
+st.info(f"Detected backend_url: `{backend_url}`")
+    st.info(f"Derived ws_url: `{ws_url}`")
+```
+<userPrompt>
+Provide the fully rewritten file, incorporating the suggested code change. You must produce the complete file.
+</userPrompt>
