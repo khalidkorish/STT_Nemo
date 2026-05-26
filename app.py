@@ -614,13 +614,20 @@ with st.sidebar:
         help="FastAPI backend URL — local or ngrok public URL",
     ).rstrip("/")
 
-    # Derive WebSocket URL from HTTP URL
-    ws_url = (
-        backend_url
-        .replace("https://", "wss://")
-        .replace("http://",  "ws://")
-        + "/ws/stream"
-    )
+    # Derive WebSocket URL from HTTP URL (robustly) and escape for JS injection
+    base = backend_url.rstrip('/')
+    if base.startswith('https://'):
+      ws_url = 'wss://' + base[len('https://'):]
+    elif base.startswith('http://'):
+      ws_url = 'ws://'  + base[len('http://'):]
+    else:
+      # fallback: assume secure when frontend is served over https
+      ws_url = base
+    if not ws_url.endswith('/ws/stream'):
+      ws_url = ws_url.rstrip('/') + '/ws/stream'
+
+    # Escape single quotes for safe JS injection
+    ws_url_js = ws_url.replace("'", "\\'")
     st.caption(f"🔌 `{ws_url}`")
 
     st.divider()
@@ -710,8 +717,8 @@ with tab_mic:
             icon="ℹ️",
         )
 
-    # Render the self-contained mic HTML component
-    st.components.v1.html(_mic_html(ws_url), height=530, scrolling=False)
+    # Render the self-contained mic HTML component (inject escaped URL)
+    st.components.v1.html(_mic_html(ws_url_js), height=530, scrolling=False)
 
     # Metrics legend
     with st.expander("📊 Metrics explained"):
