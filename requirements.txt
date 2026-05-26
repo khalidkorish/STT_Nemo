@@ -1,0 +1,8 @@
+# requirements.txt
+# ============================================================
+# Streamlit Cloud dependencies — frontend only.
+# The backend (FastAPI) runs separately and is accessed via URL.
+# ============================================================
+
+streamlit==1.57.0
+requests==2.34.2

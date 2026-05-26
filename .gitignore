@@ -1,0 +1,14 @@
+# .gitignore
+# ============================================================
+# Files to exclude from the Streamlit Cloud repo.
+# ============================================================
+
+# Never commit real secrets
+.streamlit/secrets.toml
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.env

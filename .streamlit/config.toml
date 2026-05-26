@@ -1,0 +1,21 @@
+# .streamlit/config.toml
+# ============================================================
+# Streamlit server and theme configuration.
+# Committed to the repo so Streamlit Cloud picks it up automatically.
+# ============================================================
+
+[server]
+headless            = true   # required for Streamlit Cloud
+enableCORS          = false
+enableXsrfProtection = false  # needed for WebSocket component to work
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base             = "dark"
+backgroundColor       = "#0d1117"
+secondaryBackgroundColor = "#161b22"
+textColor        = "#e6edf3"
+primaryColor     = "#58a6ff"
+font             = "sans serif"
