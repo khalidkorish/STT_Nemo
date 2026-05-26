@@ -251,6 +251,10 @@ _MIC_HTML = r"""
     <span   id="badge" class="badge idle">● غير متصل</span>
   </div>
 
+  <div style="margin-top:6px; font-size:12px; color:#6e7681;">
+    <span>WS: </span><code id="wsUrlDisplay" style="color:#79c0ff;"></code>
+  </div>
+
   <!-- Waveform visualizer -->
   <canvas id="wave"></canvas>
 
@@ -296,7 +300,9 @@ if (window && window.location && window.location.protocol === 'https:' && WS_URL
   WS_URL = WS_URL.replace('ws://', 'wss://');
 }
 
-console.log('[STT] Using WS URL:', WS_URL);
+  console.log('[STT] Using WS URL:', WS_URL);
+  // Show the computed WS URL in the UI for debugging
+  try { document.getElementById('wsUrlDisplay').textContent = WS_URL; } catch(_) {}
 const SAMPLE_RATE = 16000;
 const BUFFER_SIZE = 4096;          // ~256 ms per chunk @ 16 kHz
 
@@ -413,8 +419,19 @@ async function startRec() {
 
   try {
     // 1. Open WebSocket to backend with a single retry/fallback (ws <-> wss)
-    ws = new WebSocket(WS_URL);
-    ws.binaryType = 'arraybuffer';
+    // Never construct an insecure `ws://` on an HTTPS page — coerce to `wss://`.
+    let connectUrl = WS_URL;
+    if (window.location && window.location.protocol === 'https:' && connectUrl.startsWith('ws://')) {
+      console.warn('[STT] Page is HTTPS but WS URL uses ws:// — upgrading to wss://');
+      connectUrl = connectUrl.replace('ws://', 'wss://');
+    }
+    console.log('[STT] Connecting to', connectUrl);
+    try {
+      ws = new WebSocket(connectUrl);
+      ws.binaryType = 'arraybuffer';
+    } catch (e) {
+      throw new Error('WebSocket construction failed: ' + e.message);
+    }
 
     await new Promise((res, rej) => {
       const t = setTimeout(() => rej(new Error('Connection timeout (10s)')), 10000);
