@@ -418,62 +418,57 @@ async function startRec() {
   setStatus('⟳ Connecting…', 'connecting');
 
   try {
-    // 1. Open WebSocket to backend with a single retry/fallback (ws <-> wss)
-    // Never construct an insecure `ws://` on an HTTPS page — coerce to `wss://`.
-    let connectUrl = WS_URL;
-    if (window.location && window.location.protocol === 'https:' && connectUrl.startsWith('ws://')) {
-      console.warn('[STT] Page is HTTPS but WS URL uses ws:// — upgrading to wss://');
-      connectUrl = connectUrl.replace('ws://', 'wss://');
-    }
-    console.log('[STT] Connecting to', connectUrl);
+    // 1. Open WebSocket to backend
+    // Helper to attempt a connection and handle security (ws:// from https)
+    const attemptConnect = (url) => {
+      let connectUrl = url;
+      if (window.location.protocol === 'https:' && connectUrl.startsWith('ws://')) {
+        console.warn('[STT] Page is HTTPS, upgrading WS connection to WSS');
+        connectUrl = connectUrl.replace('ws://', 'wss://');
+      }
+      
+      return new Promise((resolve, reject) => {
+        console.log('[STT] Attempting to connect to:', connectUrl);
+        const socket = new WebSocket(connectUrl);
+        socket.binaryType = 'arraybuffer';
+
+        const timeout = setTimeout(() => {
+          socket.close();
+          reject(new Error(`Connection timeout to ${connectUrl}`));
+        }, 10000);
+
+        socket.onopen = () => {
+          clearTimeout(timeout);
+          console.log('[STT] Connected to:', connectUrl);
+          resolve(socket);
+        };
+
+        socket.onerror = (err) => {
+          clearTimeout(timeout);
+          console.error('[STT] Connection failed for:', connectUrl, err);
+          reject(new Error(`WebSocket connection failed for ${connectUrl}`));
+        };
+      });
+    };
+
     try {
-      ws = new WebSocket(connectUrl);
-      ws.binaryType = 'arraybuffer';
+      ws = await attemptConnect(WS_URL);
     } catch (e) {
-      throw new Error('WebSocket construction failed: ' + e.message);
+      console.warn('[STT] Initial connection failed, trying fallback protocol.');
+      // Try swapping ws:// for wss:// or vice-versa
+      let fallbackUrl = WS_URL.startsWith('ws://') 
+        ? WS_URL.replace('ws://', 'wss://')
+        : WS_URL.replace('wss://', 'ws://');
+      
+      try {
+        ws = await attemptConnect(fallbackUrl);
+        WS_URL = fallbackUrl; // Update global if fallback succeeds
+        document.getElementById('wsUrlDisplay').textContent = WS_URL;
+      } catch (fallbackError) {
+        console.error('[STT] Fallback connection also failed.');
+        throw fallbackError; // Propagate the final error
+      }
     }
-
-    await new Promise((res, rej) => {
-      const t = setTimeout(() => rej(new Error('Connection timeout (10s)')), 10000);
-      let triedFallback = false;
-
-      const fail = (err) => {
-        clearTimeout(t);
-        if (!triedFallback) {
-          triedFallback = true;
-          console.warn('[STT] WS connect failed, attempting protocol fallback');
-          try {
-            // Compute a fallback candidate, but DO NOT attempt insecure ws:// from https pages.
-            let candidate = null;
-            if (WS_URL.startsWith('ws://')) candidate = WS_URL.replace('ws://', 'wss://');
-            else if (WS_URL.startsWith('wss://')) candidate = WS_URL.replace('wss://', 'ws://');
-
-            if (candidate) {
-              if (window.location.protocol === 'https:' && candidate.startsWith('ws://')) {
-                // Browser will block this — abort fallback.
-                console.warn('[STT] Not retrying with insecure ws:// on HTTPS page');
-                return rej(err || new Error('WebSocket failed (secure page, insecure fallback blocked)'));
-              }
-              console.log('[STT] Retrying with:', candidate);
-              WS_URL = candidate;
-              ws = new WebSocket(WS_URL);
-              ws.binaryType = 'arraybuffer';
-              ws.onopen = () => { clearTimeout(t); res(); };
-              ws.onerror = () => fail(new Error('WebSocket retry failed'));
-            } else {
-              rej(err || new Error('WebSocket failed'));
-            }
-          } catch (e) {
-            rej(new Error('WebSocket retry exception: ' + e.message));
-          }
-        } else {
-          rej(err || new Error('WebSocket failed'));
-        }
-      };
-
-      ws.onopen  = () => { clearTimeout(t); res(); };
-      ws.onerror = (e) => fail(new Error('WebSocket failed'));
-    });
 
     // 2. Request microphone access
     mediaStream = await navigator.mediaDevices.getUserMedia({
