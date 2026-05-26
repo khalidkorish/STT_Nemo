@@ -277,32 +277,42 @@ _MIC_HTML = r"""
 <script>
 // ── Configuration ───────────────────────────────────────
 // `[[WS_URL]]` may contain a full HTTP(s) URL (from Streamlit secrets)
-// or be empty; derive a safe WS(S) URL at runtime and prefer wss for https pages.
+// or be empty. If empty, we must NOT derive a host from the page (Streamlit
+// Cloud uses a different host) — instead disable the mic UI and show an
+// explicit error so users configure the backend via Secrets.
 const WS_URL_RAW  = '[[WS_URL]]';  // injected by Python at render time
-let WS_URL = WS_URL_RAW && WS_URL_RAW !== '[[WS_URL]]' ? WS_URL_RAW : '';
-// Normalize or derive the websocket URL
-if (WS_URL) {
+let WS_URL = WS_URL_RAW && WS_URL_RAW !== '[[WS_URL]]' ? WS_URL_RAW.trim() : '';
+
+if (!WS_URL) {
+  // No configured backend — disable mic controls and show a clear message.
+  console.error('[STT] No backend WS URL provided; mic streaming disabled.');
+  try { document.getElementById('wsUrlDisplay').textContent = 'No backend configured'; } catch(_) {}
+  try {
+    const b = document.getElementById('badge');
+    b.innerHTML = '❌ No backend';
+    b.className = 'badge error';
+  } catch(_) {}
+  try { document.getElementById('startBtn').disabled = true; } catch(_) {}
+} else {
+  // Normalize configured URL and ensure the /ws/stream suffix
   if (WS_URL.startsWith('http://')) {
     WS_URL = WS_URL.replace('http://', 'ws://');
   } else if (WS_URL.startsWith('https://')) {
     WS_URL = WS_URL.replace('https://', 'wss://');
   }
   if (!WS_URL.endsWith('/ws/stream')) {
-    WS_URL = WS_URL.replace(/\/+$/, '') + '/ws/stream';
+    WS_URL = WS_URL.replace(/\/+$, '') + '/ws/stream';
   }
-} else {
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  WS_URL = proto + '//' + window.location.host + '/ws/stream';
-}
 
-// Enforce security: don't attempt an insecure ws:// connection from an https page.
-if (window && window.location && window.location.protocol === 'https:' && WS_URL.startsWith('ws://')) {
-  WS_URL = WS_URL.replace('ws://', 'wss://');
-}
+  // Enforce security: don't attempt an insecure ws:// connection from an https page.
+  if (window && window.location && window.location.protocol === 'https:' && WS_URL.startsWith('ws://')) {
+    WS_URL = WS_URL.replace('ws://', 'wss://');
+  }
 
   console.log('[STT] Using WS URL:', WS_URL);
   // Show the computed WS URL in the UI for debugging
   try { document.getElementById('wsUrlDisplay').textContent = WS_URL; } catch(_) {}
+}
 const SAMPLE_RATE = 16000;
 const BUFFER_SIZE = 4096;          // ~256 ms per chunk @ 16 kHz
 
@@ -897,17 +907,7 @@ with tab_file:
             except Exception as exc:
                 prog.empty()
                 st.error(f"❌ Unexpected error: {exc}")
-````
-This is the description of what the code block changes:
-<changeDescription>
-Add debug information to display backend_url and ws_url in the sidebar.
-</changeDescription>
 
-This is the code block that represents the suggested code change:
-```python
-st.info(f"Detected backend_url: `{backend_url}`")
-    st.info(f"Derived ws_url: `{ws_url}`")
-```
 <userPrompt>
 Provide the fully rewritten file, incorporating the suggested code change. You must produce the complete file.
 </userPrompt>
